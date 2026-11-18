@@ -33,8 +33,13 @@ const ignoredTargets =
   'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-carousel-no-drag]'
 
 // No scroll for this long, with no finger down, counts as rest where
-// `scrollend` isn't supported, or came before the scroll settled.
+// `scrollend` isn't supported.
 const restTimeout = 120
+
+// Off a page, or with `dragFree`, a scroll rests only after this long with no
+// scroll. Safari fires `scrollend` before momentum or a rubber band ends, and
+// iOS pauses for longer than `restTimeout` in a rubber band.
+const quietTimeout = 2 * restTimeout
 
 // UIScrollView's normal deceleration, for where a free drag coasts to.
 const freeDecelerationRate = 0.998
@@ -88,7 +93,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
   let userScrolled = false
   let restMissed = false
   let restTimer = 0
-  let deferredRestAt: number | null = null
+  let lastScrollTime = 0
   let pointerId: number | null = null
   let dragging = false
   let mouseDragged = false
@@ -301,23 +306,21 @@ function createCarouselMotion(options: CarouselMotionOptions) {
       return
     }
     userScrolled = true
+    lastScrollTime = performance.now()
     lastScrollEvent = event
     options.onScroll()
-    if (!supportsScrollEnd || deferredRestAt !== null) {
-      restAfterTimeout(event)
+    if (!supportsScrollEnd) {
+      restAfter(restTimeout, event)
     }
   }
 
-  function restAfterTimeout(event?: Event) {
+  function restAfter(delay: number, event?: Event) {
     view.clearTimeout(restTimer)
-    restTimer = view.setTimeout(() => onRest(event), restTimeout)
+    restTimer = view.setTimeout(() => onRest(event), delay)
   }
 
-  function isSettled(at: number) {
-    if (options.dragFree()) {
-      return at > -1 && at < options.maxScroll() + 1
-    }
-    return isOnPage(at)
+  function canRestAt(at: number) {
+    return !options.dragFree() && isOnPage(at)
   }
 
   function onRest(event?: Event) {
@@ -329,16 +332,11 @@ function createCarouselMotion(options: CarouselMotionOptions) {
       restMissed = true
       return
     }
-    // Safari fires `scrollend` as the fingers lift, before momentum, snapping
-    // or a rubber band move on. Off a page or out of range, a scroll rests
-    // only once it holds still for a whole timeout.
-    const at = position()
-    if (!isSettled(at) && deferredRestAt !== at) {
-      deferredRestAt = at
-      restAfterTimeout(event)
+    const quietFor = performance.now() - lastScrollTime
+    if (!canRestAt(position()) && quietFor < quietTimeout) {
+      restAfter(quietTimeout - quietFor, event)
       return
     }
-    deferredRestAt = null
     view.clearTimeout(restTimer)
     userScrolled = false
     const touch = touched

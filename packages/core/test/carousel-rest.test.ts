@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { createCarouselMotion } from "../src/components/carousel/carousel-motion"
+import {
+  createCarouselMotion,
+  type CarouselMotion,
+} from "../src/components/carousel/carousel-motion"
 import { sheetPhysics } from "../src/foundation/motion/physics"
+
+let motion: CarouselMotion | undefined
 
 function setup({ dragFree = false } = {}) {
   const viewport = document.createElement("div")
@@ -12,8 +17,8 @@ function setup({ dragFree = false } = {}) {
       scrollLeft = value
     },
   })
-  const rests: number[] = []
-  const motion = createCarouselMotion({
+  const rests: { position: number; touch: boolean }[] = []
+  motion = createCarouselMotion({
     viewport,
     content: () => undefined,
     axis: () => ({ vertical: false, rtl: false }),
@@ -26,7 +31,7 @@ function setup({ dragFree = false } = {}) {
     reducedMotion: () => false,
     setSnapping: () => {},
     onRelease: () => {},
-    onScrollRest: (position) => rests.push(position),
+    onScrollRest: (position, { touch }) => rests.push({ position, touch }),
     onDragChange: () => {},
     onSettle: () => {},
     onScroll: () => {},
@@ -36,10 +41,11 @@ function setup({ dragFree = false } = {}) {
     viewport.dispatchEvent(new Event("scroll"))
   }
   const scrollEnd = () => viewport.dispatchEvent(new Event("scrollend"))
-  return { motion, rests, scrollTo, scrollEnd }
+  const touchStart = () => viewport.dispatchEvent(new Event("touchstart"))
+  const touchEnd = () => viewport.dispatchEvent(new Event("touchend"))
+  const restedAt = () => rests.map((rest) => rest.position)
+  return { rests, restedAt, scrollTo, scrollEnd, touchStart, touchEnd }
 }
-
-let motion: ReturnType<typeof setup>["motion"] | undefined
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -54,71 +60,97 @@ afterEach(() => {
 describe("with scrollend", () => {
   test("a scroll that ends on a page rests at once", () => {
     const carousel = setup()
-    motion = carousel.motion
     carousel.scrollTo(300)
     carousel.scrollTo(600)
     carousel.scrollEnd()
-    expect(carousel.rests).toEqual([600])
+    expect(carousel.restedAt()).toEqual([600])
   })
 
   test("a scrollend before momentum and snapping move on waits for the page", () => {
     const carousel = setup()
-    motion = carousel.motion
     carousel.scrollTo(151)
     carousel.scrollEnd()
-    vi.advanceTimersByTime(100)
+    vi.advanceTimersByTime(200)
     carousel.scrollTo(400)
-    vi.advanceTimersByTime(100)
+    vi.advanceTimersByTime(200)
     carousel.scrollTo(600)
     carousel.scrollEnd()
     vi.advanceTimersByTime(1000)
-    expect(carousel.rests).toEqual([600])
+    expect(carousel.restedAt()).toEqual([600])
   })
 
   test("a scrollend in a rubber band waits until it's back in range", () => {
     const carousel = setup()
-    motion = carousel.motion
     carousel.scrollTo(-35)
     carousel.scrollEnd()
     carousel.scrollTo(-21)
     carousel.scrollEnd()
     carousel.scrollTo(0)
     carousel.scrollEnd()
-    expect(carousel.rests).toEqual([0])
+    expect(carousel.restedAt()).toEqual([0])
   })
 
-  test("a scroll that holds still off a page rests after a timeout", () => {
+  test("a rubber band back where an early scrollend fired isn't at rest yet", () => {
     const carousel = setup()
-    motion = carousel.motion
+    carousel.scrollTo(-63)
+    carousel.scrollEnd()
+    carousel.scrollTo(-105)
+    carousel.scrollTo(-63)
+    carousel.scrollEnd()
+    expect(carousel.restedAt()).toEqual([])
+  })
+
+  test("a second scrollend with no scroll between isn't a quiet timeout", () => {
+    const carousel = setup()
+    carousel.scrollTo(-12)
+    carousel.scrollEnd()
+    vi.advanceTimersByTime(10)
+    carousel.scrollEnd()
+    expect(carousel.restedAt()).toEqual([])
+  })
+
+  test("off a page, a scroll rests once nothing scrolls for a quiet timeout", () => {
+    const carousel = setup()
     carousel.scrollTo(151)
     carousel.scrollEnd()
-    vi.advanceTimersByTime(119)
-    expect(carousel.rests).toEqual([])
+    vi.advanceTimersByTime(239)
+    expect(carousel.restedAt()).toEqual([])
     vi.advanceTimersByTime(1)
-    expect(carousel.rests).toEqual([151])
+    expect(carousel.restedAt()).toEqual([151])
   })
 
-  test("the next scroll rests on its own scrollend, not the timeout of a deferred rest", () => {
+  test("the next scroll rests on its own scrollend, not the timeout of an early one", () => {
     const carousel = setup()
-    motion = carousel.motion
     carousel.scrollTo(151)
     carousel.scrollEnd()
     carousel.scrollTo(600)
     carousel.scrollEnd()
     vi.advanceTimersByTime(50)
     carousel.scrollTo(1200)
-    vi.advanceTimersByTime(100)
-    expect(carousel.rests).toEqual([600])
+    vi.advanceTimersByTime(1000)
+    expect(carousel.restedAt()).toEqual([600])
     carousel.scrollEnd()
-    expect(carousel.rests).toEqual([600, 1200])
+    expect(carousel.restedAt()).toEqual([600, 1200])
   })
 
-  test("a free drag rests wherever it stops", () => {
-    const carousel = setup({ dragFree: true })
-    motion = carousel.motion
+  test("a scrollend under a finger rests after the finger lifts, once on a page", () => {
+    const carousel = setup()
+    carousel.touchStart()
     carousel.scrollTo(151)
     carousel.scrollEnd()
-    expect(carousel.rests).toEqual([151])
+    carousel.touchEnd()
+    carousel.scrollTo(600)
+    carousel.scrollEnd()
+    expect(carousel.rests).toEqual([{ position: 600, touch: true }])
+  })
+
+  test("with dragFree, a scroll rests wherever it stops, once quiet", () => {
+    const carousel = setup({ dragFree: true })
+    carousel.scrollTo(151)
+    carousel.scrollEnd()
+    expect(carousel.restedAt()).toEqual([])
+    vi.advanceTimersByTime(240)
+    expect(carousel.restedAt()).toEqual([151])
   })
 })
 
@@ -138,24 +170,21 @@ describe("without scrollend", () => {
     }
   })
 
-  test("a scroll on a page rests after one quiet timeout", () => {
+  test("a scroll on a page rests after one rest timeout", () => {
     const carousel = setup()
-    motion = carousel.motion
     carousel.scrollTo(600)
     vi.advanceTimersByTime(120)
-    expect(carousel.rests).toEqual([600])
+    expect(carousel.restedAt()).toEqual([600])
   })
 
-  test("a pause off a page rests only once it holds still a second timeout", () => {
+  test("a pause off a page shorter than a quiet timeout isn't a rest", () => {
     const carousel = setup()
-    motion = carousel.motion
     carousel.scrollTo(151)
-    vi.advanceTimersByTime(120)
-    expect(carousel.rests).toEqual([])
+    vi.advanceTimersByTime(200)
     carousel.scrollTo(400)
-    vi.advanceTimersByTime(120)
-    expect(carousel.rests).toEqual([])
-    vi.advanceTimersByTime(120)
-    expect(carousel.rests).toEqual([400])
+    vi.advanceTimersByTime(239)
+    expect(carousel.restedAt()).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(carousel.restedAt()).toEqual([400])
   })
 })

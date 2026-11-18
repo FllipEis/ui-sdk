@@ -251,6 +251,22 @@ test.describe("changes @enhancement", () => {
     expect(await lastAction(page)).toBe("2")
   })
 
+  test("with dragFree, a wheel stays where it stops past the middle of a slide @enhancement", async ({
+    page,
+    open,
+  }) => {
+    await open("carousel", { "drag-free": "" })
+    const viewport = page.locator(".carousel-viewport")
+    const width = await viewport.evaluate((el) => el.clientWidth)
+    const box = await slideLink(page, 0).boundingBox()
+    await page.mouse.move(box!.x, box!.y)
+    await page.mouse.wheel(Math.round(width * 0.7), 0)
+    await expect.poll(() => lastReason(page)).toBe("scroll")
+    await settled(page)
+    const stoppedAt = await viewport.evaluate((el) => el.scrollLeft)
+    expect(Math.abs(stoppedAt - width)).toBeGreaterThan(1)
+  })
+
   test("with loop, a wheel back from the first slide scrolls natively to the last @enhancement", async ({
     page,
     open,
