@@ -33,7 +33,7 @@ const ignoredTargets =
   'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-carousel-no-drag]'
 
 // No scroll for this long, with no finger down, counts as rest where
-// `scrollend` isn't supported.
+// `scrollend` isn't supported, or came before the scroll settled.
 const restTimeout = 120
 
 // UIScrollView's normal deceleration, for where a free drag coasts to.
@@ -88,6 +88,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
   let userScrolled = false
   let restMissed = false
   let restTimer = 0
+  let deferredRest: number | null = null
   let pointerId: number | null = null
   let dragging = false
   let mouseDragged = false
@@ -288,8 +289,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     options.onSettle()
   }
 
-  function isOnPage() {
-    const at = position()
+  function isOnPage(at = position()) {
     return options.positions().some((position) => Math.abs(position - at) < 1)
   }
 
@@ -303,11 +303,17 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     userScrolled = true
     lastScrollEvent = event
     options.onScroll()
-    if (supportsScrollEnd) {
-      return
-    }
     view.clearTimeout(restTimer)
-    restTimer = view.setTimeout(() => onRest(event), restTimeout)
+    if (!supportsScrollEnd || deferredRest !== null) {
+      restTimer = view.setTimeout(() => onRest(event), restTimeout)
+    }
+  }
+
+  function isSettled(at: number) {
+    if (options.dragFree()) {
+      return at > -1 && at < options.maxScroll() + 1
+    }
+    return isOnPage(at)
   }
 
   function onRest(event?: Event) {
@@ -319,6 +325,17 @@ function createCarouselMotion(options: CarouselMotionOptions) {
       restMissed = true
       return
     }
+    // Safari fires `scrollend` as the fingers lift, before momentum, snapping
+    // or a rubber band move on. Off a page or out of range, a scroll rests
+    // only once it holds still for a whole timeout.
+    const at = position()
+    if (!isSettled(at) && deferredRest !== at) {
+      deferredRest = at
+      view.clearTimeout(restTimer)
+      restTimer = view.setTimeout(() => onRest(event), restTimeout)
+      return
+    }
+    deferredRest = null
     userScrolled = false
     const touch = touched
     touched = false
