@@ -151,6 +151,18 @@ describe("with scrollend", () => {
     expect(motion?.restedFromScroll()).toBe(false)
   })
 
+  test("a finger that catches a spring and lifts without scrolling rests", () => {
+    const carousel = setup()
+    motion?.moveTo(1)
+    vi.advanceTimersByTime(50)
+    carousel.touchStart()
+    carousel.touchEnd()
+    expect(carousel.rests).toEqual([])
+    vi.advanceTimersByTime(240)
+    expect(carousel.rests).toHaveLength(1)
+    expect(carousel.rests[0].touch).toBe(true)
+  })
+
   test("with dragFree, a scroll rests wherever it stops, once quiet", () => {
     const carousel = setup({ dragFree: true })
     carousel.scrollTo(151)

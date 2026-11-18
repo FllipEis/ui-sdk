@@ -151,6 +151,9 @@ function carouselApiBody(
   let motion: CarouselMotion | undefined
   // Which way a step heads, 1 or -1, for the loop to rotate toward it.
   let heading: 1 | -1 | undefined
+  // A page change made while the user's own scroll held the viewport, which
+  // the scroll's rest goes to instead of the page nearest it.
+  let pagedWhileScrolling = false
   const readDirection = () =>
     (isRtl = isRTL(element("viewport") ?? element("root")))
   const turned = () =>
@@ -232,6 +235,9 @@ function carouselApiBody(
     heading = by
     const changed = change("page", target, { reason, event })
     heading = undefined
+    if (changed && motion?.isScrolling()) {
+      pagedWhileScrolling = true
+    }
     // A canceled change, or a controlled page that stayed, moves back.
     if (!changed || store.get().page !== target) {
       queueMicrotask(followPage)
@@ -260,7 +266,7 @@ function carouselApiBody(
       return
     }
     const index = store.get().page - 1
-    if (!layout[index] || isLeftToScroll(index)) {
+    if (!layout[index] || (animate && isLeftToBrowser(index))) {
       return
     }
     if (animate) {
@@ -275,7 +281,7 @@ function carouselApiBody(
   // Where the user's own scroll rested is the browser's to line up with CSS
   // snapping, or to keep with `dragFree`. After a finger caught a spring,
   // snapping is off, and the carousel lines it up itself.
-  function isLeftToScroll(index: number) {
+  function isLeftToBrowser(index: number) {
     const { dragFree, snapping } = store.get()
     return (
       (dragFree || snapping) &&
@@ -449,11 +455,19 @@ function carouselApiBody(
     if (index === -1) {
       return
     }
-    const reason = cause.touch ? "swipe" : "scroll"
-    if (index + 1 !== store.get().page) {
-      go(index + 1, reason, cause.event)
+    if (pagedWhileScrolling) {
+      pagedWhileScrolling = false
+      followPage()
+      return rested()
     }
-    followPage()
+    if (index + 1 !== store.get().page) {
+      go(index + 1, cause.touch ? "swipe" : "scroll", cause.event)
+    }
+    // A canceled change, or a controlled page that hasn't arrived yet, is
+    // left to the follow `go` queued.
+    if (store.get().page === index + 1) {
+      followPage()
+    }
     rested()
   }
 
