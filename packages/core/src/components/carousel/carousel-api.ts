@@ -433,10 +433,6 @@ function carouselApiBody(
     position: number,
     cause: { touch: boolean; event?: Event }
   ) {
-    const wasRtl = isRtl
-    if (followDirection() !== wasRtl && motion) {
-      position = motion.position()
-    }
     updateInView()
     const index = nearestPage(layout, position)
     if (index === -1) {
@@ -466,6 +462,7 @@ function carouselApiBody(
       viewport,
       content: () => element("content"),
       axis,
+      followDirection,
       // In the order they rest, within the scroll range.
       positions: () =>
         visual.map((index) => clamp(layout[index].position, 0, maxScroll)),

@@ -22,6 +22,7 @@ function setup({ dragFree = false } = {}) {
     viewport,
     content: () => undefined,
     axis: () => ({ vertical: false, rtl: false }),
+    followDirection: () => {},
     positions: () => [0, 600, 1200],
     maxScroll: () => 1200,
     viewportSize: () => 600,

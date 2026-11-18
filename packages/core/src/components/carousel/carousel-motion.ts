@@ -49,6 +49,8 @@ type CarouselMotionOptions = {
   /** The element that holds the slides, which the rubber band stretches. */
   content: () => HTMLElement | undefined
   axis: () => CarouselAxis
+  /** Reads the direction again, which `axis` only caches. Called before a native scroll rests. */
+  followDirection: () => void
   /** Each page's resting scroll position, ascending. */
   positions: () => readonly number[]
   /** The largest scroll position, as last measured. */
@@ -332,6 +334,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
       restMissed = true
       return
     }
+    options.followDirection()
     const quietFor = performance.now() - lastScrollTime
     if (!canRestAt(position()) && quietFor < quietTimeout) {
       restAfter(quietTimeout - quietFor, event)
