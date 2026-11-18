@@ -151,7 +151,6 @@ function carouselApiBody(
   let motion: CarouselMotion | undefined
   // Which way a step heads, 1 or -1, for the loop to rotate toward it.
   let heading: 1 | -1 | undefined
-  let pagingFromScroll = false
   const readDirection = () =>
     (isRtl = isRTL(element("viewport") ?? element("root")))
   const turned = () =>
@@ -252,7 +251,6 @@ function carouselApiBody(
   // settles it later.
   function followPage({ animate = true } = {}) {
     if (
-      pagingFromScroll ||
       loop.isRotating() ||
       !motion ||
       !measured ||
@@ -262,7 +260,7 @@ function carouselApiBody(
       return
     }
     const index = store.get().page - 1
-    if (!layout[index]) {
+    if (!layout[index] || isLeftToScroll(index)) {
       return
     }
     if (animate) {
@@ -272,6 +270,19 @@ function carouselApiBody(
     if (Math.abs(motion.position() - position) >= 1 || !store.get().snapping) {
       motion.moveTo(visual.indexOf(index), { animate })
     }
+  }
+
+  // Where the user's own scroll rested is the browser's to line up with CSS
+  // snapping, or to keep with `dragFree`. After a finger caught a spring,
+  // snapping is off, and the carousel lines it up itself.
+  function isLeftToScroll(index: number) {
+    const { dragFree, snapping } = store.get()
+    return (
+      (dragFree || snapping) &&
+      motion !== undefined &&
+      motion.restedFromScroll() &&
+      nearestPage(layout, motion.position()) === index
+    )
   }
 
   let snapAreas = false
@@ -440,19 +451,9 @@ function carouselApiBody(
     }
     const reason = cause.touch ? "swipe" : "scroll"
     if (index + 1 !== store.get().page) {
-      pagingFromScroll = true
-      try {
-        go(index + 1, reason, cause.event)
-      } finally {
-        pagingFromScroll = false
-      }
+      go(index + 1, reason, cause.event)
     }
-    // CSS snapping lines a native scroll up. Snapping is off only after a
-    // finger caught a spring, and then the carousel lines it up itself.
-    const { dragFree, snapping } = store.get()
-    if (!dragFree && !snapping) {
-      followPage()
-    }
+    followPage()
     rested()
   }
 

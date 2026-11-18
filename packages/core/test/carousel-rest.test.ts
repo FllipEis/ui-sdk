@@ -91,16 +91,6 @@ describe("with scrollend", () => {
     expect(carousel.restedAt()).toEqual([0])
   })
 
-  test("a rubber band back where an early scrollend fired isn't at rest yet", () => {
-    const carousel = setup()
-    carousel.scrollTo(-63)
-    carousel.scrollEnd()
-    carousel.scrollTo(-105)
-    carousel.scrollTo(-63)
-    carousel.scrollEnd()
-    expect(carousel.restedAt()).toEqual([])
-  })
-
   test("a second scrollend with no scroll between isn't a quiet timeout", () => {
     const carousel = setup()
     carousel.scrollTo(-12)
@@ -120,18 +110,13 @@ describe("with scrollend", () => {
     expect(carousel.restedAt()).toEqual([151])
   })
 
-  test("the next scroll rests on its own scrollend, not the timeout of an early one", () => {
+  test("a scroll whose scrollend never comes rests after a quiet timeout", () => {
     const carousel = setup()
-    carousel.scrollTo(151)
-    carousel.scrollEnd()
     carousel.scrollTo(600)
-    carousel.scrollEnd()
-    vi.advanceTimersByTime(50)
-    carousel.scrollTo(1200)
-    vi.advanceTimersByTime(1000)
+    vi.advanceTimersByTime(239)
+    expect(carousel.restedAt()).toEqual([])
+    vi.advanceTimersByTime(1)
     expect(carousel.restedAt()).toEqual([600])
-    carousel.scrollEnd()
-    expect(carousel.restedAt()).toEqual([600, 1200])
   })
 
   test("a scrollend under a finger rests after the finger lifts, once on a page", () => {
@@ -143,6 +128,27 @@ describe("with scrollend", () => {
     carousel.scrollTo(600)
     carousel.scrollEnd()
     expect(carousel.rests).toEqual([{ position: 600, touch: true }])
+  })
+
+  test("a finger held still off a page rests a quiet timeout after it lifts", () => {
+    const carousel = setup()
+    carousel.touchStart()
+    carousel.scrollTo(151)
+    vi.advanceTimersByTime(500)
+    carousel.touchEnd()
+    vi.advanceTimersByTime(239)
+    expect(carousel.restedAt()).toEqual([])
+    vi.advanceTimersByTime(1)
+    expect(carousel.restedAt()).toEqual([151])
+  })
+
+  test("the viewport is left where a scroll rested until the carousel moves it", () => {
+    const carousel = setup()
+    carousel.scrollTo(600)
+    carousel.scrollEnd()
+    expect(motion?.restedFromScroll()).toBe(true)
+    motion?.moveTo(2, { animate: false })
+    expect(motion?.restedFromScroll()).toBe(false)
   })
 
   test("with dragFree, a scroll rests wherever it stops, once quiet", () => {

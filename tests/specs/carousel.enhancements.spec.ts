@@ -10,6 +10,7 @@ import {
   previousButton,
   settled,
   slideLink,
+  watchBackward,
 } from "./carousel.helpers"
 
 // Behavior past the WAI-ARIA carousel pattern, tagged `@enhancement`.
@@ -251,15 +252,31 @@ test.describe("changes @enhancement", () => {
     expect(await lastAction(page)).toBe("2")
   })
 
+  test("a scrollend before the scroll ends doesn't pull the slides back @enhancement", async ({
+    page,
+    open,
+  }) => {
+    await open("carousel")
+    await settled(page)
+    const backward = await watchBackward(page)
+    // Like Safari, which fires `scrollend` as trackpad fingers lift while
+    // momentum carries on, here as a smooth scroll starts.
+    await page.locator(".carousel-viewport").evaluate((viewport) => {
+      viewport.addEventListener(
+        "scroll",
+        () => viewport.dispatchEvent(new Event("scrollend")),
+        { once: true }
+      )
+      viewport.scrollTo({ left: viewport.clientWidth, behavior: "smooth" })
+    })
+    await expectShown(page, 1)
+    expect(await backward()).toBe(0)
+  })
+
   test("with dragFree, a wheel stays where it stops past the middle of a slide @enhancement", async ({
     page,
     open,
-    browserName,
   }) => {
-    test.skip(
-      browserName === "firefox",
-      "Firefox fires no scrollend after a wheel scroll that doesn't snap."
-    )
     await open("carousel", { "drag-free": "" })
     const viewport = page.locator(".carousel-viewport")
     const width = await viewport.evaluate((el) => el.clientWidth)

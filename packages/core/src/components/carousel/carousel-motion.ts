@@ -36,9 +36,9 @@ const ignoredTargets =
 // `scrollend` isn't supported.
 const restTimeout = 120
 
-// Off a page, or with `dragFree`, a scroll rests only after this long with no
-// scroll. Safari fires `scrollend` before momentum or a rubber band ends, and
-// iOS pauses for longer than `restTimeout` in a rubber band.
+// A scroll off a page, with `dragFree` or without its `scrollend` rests after
+// this long with no scroll. Safari fires `scrollend` before momentum or a
+// rubber band ends, and iOS pauses for longer than `restTimeout` in a bounce.
 const quietTimeout = 2 * restTimeout
 
 // UIScrollView's normal deceleration, for where a free drag coasts to.
@@ -95,7 +95,8 @@ function createCarouselMotion(options: CarouselMotionOptions) {
   let userScrolled = false
   let restMissed = false
   let restTimer = 0
-  let lastScrollTime = 0
+  let quietSince = 0
+  let restedFromScroll = false
   let pointerId: number | null = null
   let dragging = false
   let mouseDragged = false
@@ -243,6 +244,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     startTime: number
   ) {
     stopSpring()
+    restedFromScroll = false
     pendingPosition = null
     const { from, to, velocity } = effect
     const isStill = Math.abs(to - from) < 0.5 && Math.abs(velocity) < 0.01
@@ -308,12 +310,11 @@ function createCarouselMotion(options: CarouselMotionOptions) {
       return
     }
     userScrolled = true
-    lastScrollTime = performance.now()
+    restedFromScroll = false
+    quietSince = performance.now()
     lastScrollEvent = event
     options.onScroll()
-    if (!supportsScrollEnd) {
-      restAfter(restTimeout, event)
-    }
+    restAfter(supportsScrollEnd ? quietTimeout : restTimeout, event)
   }
 
   function restAfter(delay: number, event?: Event) {
@@ -335,13 +336,14 @@ function createCarouselMotion(options: CarouselMotionOptions) {
       return
     }
     options.followDirection()
-    const quietFor = performance.now() - lastScrollTime
+    const quietFor = performance.now() - quietSince
     if (!canRestAt(position()) && quietFor < quietTimeout) {
       restAfter(quietTimeout - quietFor, event)
       return
     }
     view.clearTimeout(restTimer)
     userScrolled = false
+    restedFromScroll = true
     const touch = touched
     touched = false
     restHere()
@@ -363,9 +365,15 @@ function createCarouselMotion(options: CarouselMotionOptions) {
 
   function onTouchEnd() {
     touching = false
+    if (!userScrolled) {
+      return
+    }
+    quietSince = performance.now()
     if (restMissed) {
       restMissed = false
       onRest()
+    } else {
+      restAfter(quietTimeout)
     }
   }
 
@@ -399,6 +407,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     if (state.phase === "idle") {
       restHere()
     }
+    restedFromScroll = false
     pointerId = event.pointerId
     mouseDragged = false
     // A press that starts selecting text would scroll the viewport with the
@@ -513,6 +522,8 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     isHeld,
     /** Whether it's held, or a spring is moving it, so new layout shouldn't jump it. */
     isMoving: () => isHeld() || spring !== null,
+    /** Whether it's still where the user's own scroll came to rest. */
+    restedFromScroll: () => restedFromScroll,
     /** Moves to a page index: springs there from wherever it is, or jumps without `animate`. */
     moveTo(index: number, { animate = true } = {}) {
       const positions = options.positions()
@@ -525,6 +536,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
       }
       if (!animate) {
         stopSpring()
+        restedFromScroll = false
         write(positions[index])
         state = initialState(positions[index], index)
         options.setSnapping(true)
