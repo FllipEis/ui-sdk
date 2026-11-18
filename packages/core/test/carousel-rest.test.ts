@@ -98,6 +98,21 @@ describe("with scrollend", () => {
     expect(carousel.rests).toEqual([151])
   })
 
+  test("the next scroll rests on its own scrollend, not the timeout of a deferred rest", () => {
+    const carousel = setup()
+    motion = carousel.motion
+    carousel.scrollTo(151)
+    carousel.scrollEnd()
+    carousel.scrollTo(600)
+    carousel.scrollEnd()
+    vi.advanceTimersByTime(50)
+    carousel.scrollTo(1200)
+    vi.advanceTimersByTime(100)
+    expect(carousel.rests).toEqual([600])
+    carousel.scrollEnd()
+    expect(carousel.rests).toEqual([600, 1200])
+  })
+
   test("a free drag rests wherever it stops", () => {
     const carousel = setup({ dragFree: true })
     motion = carousel.motion

@@ -88,7 +88,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
   let userScrolled = false
   let restMissed = false
   let restTimer = 0
-  let deferredRest: number | null = null
+  let deferredRestAt: number | null = null
   let pointerId: number | null = null
   let dragging = false
   let mouseDragged = false
@@ -303,10 +303,14 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     userScrolled = true
     lastScrollEvent = event
     options.onScroll()
-    view.clearTimeout(restTimer)
-    if (!supportsScrollEnd || deferredRest !== null) {
-      restTimer = view.setTimeout(() => onRest(event), restTimeout)
+    if (!supportsScrollEnd || deferredRestAt !== null) {
+      restAfterTimeout(event)
     }
+  }
+
+  function restAfterTimeout(event?: Event) {
+    view.clearTimeout(restTimer)
+    restTimer = view.setTimeout(() => onRest(event), restTimeout)
   }
 
   function isSettled(at: number) {
@@ -329,13 +333,13 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     // or a rubber band move on. Off a page or out of range, a scroll rests
     // only once it holds still for a whole timeout.
     const at = position()
-    if (!isSettled(at) && deferredRest !== at) {
-      deferredRest = at
-      view.clearTimeout(restTimer)
-      restTimer = view.setTimeout(() => onRest(event), restTimeout)
+    if (!isSettled(at) && deferredRestAt !== at) {
+      deferredRestAt = at
+      restAfterTimeout(event)
       return
     }
-    deferredRest = null
+    deferredRestAt = null
+    view.clearTimeout(restTimer)
     userScrolled = false
     const touch = touched
     touched = false
