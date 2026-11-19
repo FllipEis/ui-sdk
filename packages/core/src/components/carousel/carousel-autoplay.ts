@@ -4,7 +4,8 @@
 // Pure timing: the carousel decides what pauses it and what a tick does.
 
 /** Why rotation is paused for now. None of these is a change to `playing`. */
-type CarouselPause = "hover" | "hidden" | "offscreen" | "touch" | "drag"
+type CarouselPause =
+  "hover" | "hidden" | "offscreen" | "touch" | "drag" | "scroll"
 
 function createAutoplay(options: {
   interval: () => number

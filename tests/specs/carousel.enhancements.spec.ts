@@ -384,6 +384,81 @@ test.describe("changes @enhancement", () => {
     expect(positions[0]).toBeLessThanOrEqual(1)
   })
 
+  for (const reducedMotion of [false, true]) {
+    const variant = reducedMotion ? ", with reduced motion" : ""
+
+    test(`a canceled scroll change reports its rest once, back on its page${variant} @enhancement`, async ({
+      page,
+      open,
+      framework,
+    }) => {
+      test.skip(
+        framework !== "web",
+        "Counts `pagechangecomplete`, which only the web components dispatch."
+      )
+      await page.emulateMedia({
+        reducedMotion: reducedMotion ? "reduce" : "no-preference",
+      })
+      await open("carousel", { cancel: "2" })
+      await settled(page)
+      await page.locator("ui-carousel").evaluate((carousel) => {
+        const viewport =
+          carousel.querySelector<HTMLElement>(".carousel-viewport")!
+        const rests: number[] = []
+        carousel.addEventListener("pagechangecomplete", () =>
+          rests.push(viewport.scrollLeft)
+        )
+        Object.assign(window, { rests })
+        viewport.scrollTo({ left: viewport.clientWidth, behavior: "smooth" })
+      })
+      await expect(page.getByLabel("Rested on")).toHaveText("1")
+      await settled(page)
+      const rests = await page.evaluate(
+        () => (window as unknown as { rests: number[] }).rests
+      )
+      expect(rests).toEqual([0])
+    })
+
+    test(`with dragFree, Next pressed while a scroll comes to rest reports its rest once${variant} @enhancement`, async ({
+      page,
+      open,
+      framework,
+    }) => {
+      test.skip(
+        framework !== "web",
+        "Counts `pagechangecomplete`, which only the web components dispatch."
+      )
+      await page.emulateMedia({
+        reducedMotion: reducedMotion ? "reduce" : "no-preference",
+      })
+      await open("carousel", { "drag-free": "" })
+      const viewport = page.locator(".carousel-viewport")
+      await page.locator("ui-carousel").evaluate((carousel) => {
+        const rests: number[] = []
+        carousel.addEventListener("pagechangecomplete", (event) =>
+          rests.push((event as CustomEvent<{ value: number }>).detail.value)
+        )
+        Object.assign(window, { rests })
+      })
+      const width = await viewport.evaluate((el) => el.clientWidth)
+      const box = await slideLink(page, 0).boundingBox()
+      await page.mouse.move(box!.x, box!.y)
+      await page.mouse.wheel(Math.round(width * 0.7), 0)
+      await viewport.evaluate((el) => el.dispatchEvent(new Event("scroll")))
+      await nextButton(page).click()
+      await expect
+        .poll(() =>
+          viewport.evaluate((el) => Math.abs(el.scrollLeft - el.clientWidth))
+        )
+        .toBeLessThanOrEqual(1)
+      await settled(page)
+      const rests = await page.evaluate(
+        () => (window as unknown as { rests: number[] }).rests
+      )
+      expect(rests).toEqual([2])
+    })
+  }
+
   test("with loop, a wheel back from the first slide scrolls natively to the last @enhancement", async ({
     page,
     open,

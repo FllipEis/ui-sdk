@@ -97,11 +97,6 @@ const userReasons = new Set<string>([
   "scroll",
 ])
 
-// Rotation and new layout change the page on their own, so a scroll the user
-// is making wins over them.
-const isAsked = (reason: CarouselPageChangeReason) =>
-  reason !== "timeout" && reason !== "content-resize"
-
 // Carousel physics: the sheet's springs, with UIScrollView's rubber band
 // against the viewport's own size.
 const physics = {
@@ -240,7 +235,8 @@ function carouselApiBody(
     heading = by
     const changed = change("page", target, { reason, event })
     heading = undefined
-    if (changed && isAsked(reason) && motion?.isScrolling()) {
+    const isAsked = userReasons.has(reason) || reason === "imperative"
+    if (changed && isAsked && motion?.isScrolling()) {
       pagedWhileScrolling = true
     }
     // A canceled change, or a controlled page that stayed, moves back.
@@ -460,21 +456,29 @@ function carouselApiBody(
     if (index === -1) {
       return
     }
+    autoplay.setPaused("scroll", false)
     if (pagedWhileScrolling) {
       pagedWhileScrolling = false
       followPage({ takeOver: true })
-      return rested()
+      return restUnlessMoved()
     }
     if (index + 1 !== store.get().page) {
       go(index + 1, cause.touch ? "swipe" : "scroll", cause.event)
     }
     if (store.get().page === index + 1) {
       followPage()
-      return rested()
+      return restUnlessMoved()
     }
     // A canceled change, or a controlled page that hasn't arrived yet, is
-    // left to the follow that `go` queued, and rests after it.
-    queueMicrotask(rested)
+    // left to the follow that `go` queued.
+    queueMicrotask(restUnlessMoved)
+  }
+
+  // A move the carousel makes after a scroll's rest reports once it settles.
+  function restUnlessMoved() {
+    if (motion?.restedFromScroll()) {
+      rested()
+    }
   }
 
   function bindViewport(viewport: HTMLElement) {
@@ -504,6 +508,8 @@ function carouselApiBody(
       onRelease: (index, event) => go(visual[index] + 1, "swipe", event),
       onScrollRest,
       onSettle: () => {
+        pagedWhileScrolling = false
+        autoplay.setPaused("scroll", false)
         if (!store.get().dragFree) {
           followPage()
         }
@@ -513,13 +519,19 @@ function carouselApiBody(
         store.set({ dragging })
         autoplay.setPaused("drag", dragging)
       },
-      onScroll: updateInView,
+      onScroll: () => {
+        if (motion?.isScrolling()) {
+          autoplay.setPaused("scroll", true)
+        }
+        updateInView()
+      },
     })
     motion = viewportMotion
     cleanups.push(viewportMotion.destroy, () => {
       if (motion === viewportMotion) {
         motion = undefined
         pagedWhileScrolling = false
+        autoplay.setPaused("scroll", false)
       }
       loop.reset(elements(context, "item"))
     })

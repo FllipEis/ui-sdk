@@ -315,13 +315,15 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     quietSince = performance.now()
     lastScrollEvent = event
     options.onScroll()
-    restAfter(supportsScrollEnd ? quietTimeout : restTimeout, event)
+    restAfter(supportsScrollEnd ? quietTimeout : restTimeout)
   }
 
-  function restAfter(delay: number, event?: Event) {
+  function restAfter(delay: number) {
     view.clearTimeout(restTimer)
-    restTimer = view.setTimeout(() => onRest(event), delay)
+    restTimer = view.setTimeout(restLater, delay)
   }
+
+  const restLater = () => onRest()
 
   function canRestHere() {
     return !options.dragFree() && isOnPage()
@@ -339,7 +341,7 @@ function createCarouselMotion(options: CarouselMotionOptions) {
     options.followDirection()
     const quietFor = performance.now() - quietSince
     if (!canRestHere() && quietFor < quietTimeout) {
-      restAfter(quietTimeout - quietFor, event)
+      restAfter(quietTimeout - quietFor)
       return
     }
     view.clearTimeout(restTimer)
