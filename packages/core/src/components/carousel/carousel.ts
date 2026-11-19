@@ -138,7 +138,7 @@ type CarouselOptions = {
     page: number,
     details: ChangeDetails<CarouselPageChangeReason>
   ) => void
-  /** Runs once the slides come to rest on a page, after a spring, a drag or a scroll, with that page. Start work there that would stutter the motion. */
+  /** Runs once the slides come to rest, after a spring, a drag or a scroll, with the page they rest on, or the nearest one. Start work there that would stutter the motion. */
   onPageChangeComplete?: (page: number) => void
   /** Whether it rotates through the pages on its own. Pass it to control rotation. */
   playing?: boolean

@@ -97,6 +97,11 @@ const userReasons = new Set<string>([
   "scroll",
 ])
 
+// Rotation and new layout change the page on their own, so a scroll the user
+// is making wins over them.
+const isAsked = (reason: CarouselPageChangeReason) =>
+  reason !== "timeout" && reason !== "content-resize"
+
 // Carousel physics: the sheet's springs, with UIScrollView's rubber band
 // against the viewport's own size.
 const physics = {
@@ -151,8 +156,8 @@ function carouselApiBody(
   let motion: CarouselMotion | undefined
   // Which way a step heads, 1 or -1, for the loop to rotate toward it.
   let heading: 1 | -1 | undefined
-  // A page change made while the user's own scroll held the viewport, which
-  // the scroll's rest goes to instead of the page nearest it.
+  // A page change the user or the app made while the user's own scroll held
+  // the viewport, which the scroll's rest goes to instead of the nearest page.
   let pagedWhileScrolling = false
   const readDirection = () =>
     (isRtl = isRTL(element("viewport") ?? element("root")))
@@ -235,7 +240,7 @@ function carouselApiBody(
     heading = by
     const changed = change("page", target, { reason, event })
     heading = undefined
-    if (changed && motion?.isScrolling()) {
+    if (changed && isAsked(reason) && motion?.isScrolling()) {
       pagedWhileScrolling = true
     }
     // A canceled change, or a controlled page that stayed, moves back.
@@ -255,7 +260,7 @@ function carouselApiBody(
   // Scrolls to the current page, if the viewport isn't there. A spring on
   // its way somewhere else turns toward it; the user's own scroll or drag
   // settles it later.
-  function followPage({ animate = true } = {}) {
+  function followPage({ animate = true, takeOver = false } = {}) {
     if (
       loop.isRotating() ||
       !motion ||
@@ -266,7 +271,7 @@ function carouselApiBody(
       return
     }
     const index = store.get().page - 1
-    if (!layout[index] || (animate && isLeftToBrowser(index))) {
+    if (!layout[index] || (animate && !takeOver && isLeftToBrowser(index))) {
       return
     }
     if (animate) {
@@ -457,18 +462,19 @@ function carouselApiBody(
     }
     if (pagedWhileScrolling) {
       pagedWhileScrolling = false
-      followPage()
+      followPage({ takeOver: true })
       return rested()
     }
     if (index + 1 !== store.get().page) {
       go(index + 1, cause.touch ? "swipe" : "scroll", cause.event)
     }
-    // A canceled change, or a controlled page that hasn't arrived yet, is
-    // left to the follow `go` queued.
     if (store.get().page === index + 1) {
       followPage()
+      return rested()
     }
-    rested()
+    // A canceled change, or a controlled page that hasn't arrived yet, is
+    // left to the follow that `go` queued, and rests after it.
+    queueMicrotask(rested)
   }
 
   function bindViewport(viewport: HTMLElement) {
@@ -513,6 +519,7 @@ function carouselApiBody(
     cleanups.push(viewportMotion.destroy, () => {
       if (motion === viewportMotion) {
         motion = undefined
+        pagedWhileScrolling = false
       }
       loop.reset(elements(context, "item"))
     })

@@ -8,7 +8,15 @@ import { sheetPhysics } from "../src/foundation/motion/physics"
 
 let motion: CarouselMotion | undefined
 
-function setup({ dragFree = false } = {}) {
+function setup({
+  dragFree = false,
+  rtl = () => false,
+  followDirection = () => {},
+}: {
+  dragFree?: boolean
+  rtl?: () => boolean
+  followDirection?: () => void
+} = {}) {
   const viewport = document.createElement("div")
   let scrollLeft = 0
   Object.defineProperty(viewport, "scrollLeft", {
@@ -21,8 +29,8 @@ function setup({ dragFree = false } = {}) {
   motion = createCarouselMotion({
     viewport,
     content: () => undefined,
-    axis: () => ({ vertical: false, rtl: false }),
-    followDirection: () => {},
+    axis: () => ({ vertical: false, rtl: rtl() }),
+    followDirection,
     positions: () => [0, 600, 1200],
     maxScroll: () => 1200,
     viewportSize: () => 600,
@@ -130,6 +138,19 @@ describe("with scrollend", () => {
     expect(carousel.rests).toEqual([{ position: 600, touch: true }])
   })
 
+  test("a scroll from the direction turning rests at once, read in the new direction", () => {
+    let isRtl = false
+    const carousel = setup({
+      rtl: () => isRtl,
+      followDirection: () => {
+        isRtl = true
+      },
+    })
+    carousel.scrollTo(-600)
+    carousel.scrollEnd()
+    expect(carousel.restedAt()).toEqual([600])
+  })
+
   test("a finger held still off a page rests a quiet timeout after it lifts", () => {
     const carousel = setup()
     carousel.touchStart()
@@ -142,7 +163,7 @@ describe("with scrollend", () => {
     expect(carousel.restedAt()).toEqual([151])
   })
 
-  test("the viewport is left where a scroll rested until the carousel moves it", () => {
+  test("restedFromScroll holds from a scroll's rest until the carousel moves it", () => {
     const carousel = setup()
     carousel.scrollTo(600)
     carousel.scrollEnd()

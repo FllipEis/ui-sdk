@@ -258,9 +258,14 @@ test.describe("changes @enhancement", () => {
     test(`a scrollend before the scroll ends doesn't pull the slides back${variant} @enhancement`, async ({
       page,
       open,
+      framework,
     }) => {
       test.skip(
-        controlled && test.info().project.name.startsWith("react"),
+        controlled && framework === "web",
+        "The web components fixture doesn't control the page."
+      )
+      test.skip(
+        controlled && framework.startsWith("react"),
         "React hands a controlled page over after the carousel moves back to the old one."
       )
       await open("carousel", controlled ? { controlled: "" } : {})
@@ -283,9 +288,14 @@ test.describe("changes @enhancement", () => {
     test(`with dragFree, a wheel stays where it stops past the middle of a slide${variant} @enhancement`, async ({
       page,
       open,
+      framework,
     }) => {
       test.skip(
-        controlled && test.info().project.name.startsWith("react"),
+        controlled && framework === "web",
+        "The web components fixture doesn't control the page."
+      )
+      test.skip(
+        controlled && framework.startsWith("react"),
         "React hands a controlled page over after the carousel moves back to the old one."
       )
       await open("carousel", {
@@ -325,20 +335,53 @@ test.describe("changes @enhancement", () => {
     expect(Math.abs(stoppedAt - distance)).toBeLessThanOrEqual(1)
   })
 
-  test("with dragFree, Next pressed as a wheel scroll comes to rest shows the next slide @enhancement", async ({
+  for (const share of [0.3, 0.7]) {
+    test(`with dragFree, Next pressed while a scroll ${share * 100}% across a slide comes to rest shows the next slide @enhancement`, async ({
+      page,
+      open,
+    }) => {
+      await open("carousel", { "drag-free": "" })
+      const viewport = page.locator(".carousel-viewport")
+      const width = await viewport.evaluate((el) => el.clientWidth)
+      const box = await slideLink(page, 0).boundingBox()
+      await page.mouse.move(box!.x, box!.y)
+      await page.mouse.wheel(Math.round(width * share), 0)
+      // A scroll event right before the press keeps the scroll from resting first.
+      await viewport.evaluate((el) => el.dispatchEvent(new Event("scroll")))
+      await nextButton(page).click()
+      await expect
+        .poll(() =>
+          viewport.evaluate((el) => Math.abs(el.scrollLeft - el.clientWidth))
+        )
+        .toBeLessThanOrEqual(1)
+      expect(await lastReason(page)).toBe("next-press")
+    })
+  }
+
+  test("a scroll change that's canceled completes once it's back on its page @enhancement", async ({
     page,
     open,
   }) => {
-    await open("carousel", { "drag-free": "" })
-    const width = await page
-      .locator(".carousel-viewport")
-      .evaluate((el) => el.clientWidth)
-    const box = await slideLink(page, 0).boundingBox()
-    await page.mouse.move(box!.x, box!.y)
-    await page.mouse.wheel(Math.round(width * 0.3), 0)
-    await nextButton(page).click()
-    await expectShown(page, 1)
-    expect(await lastAction(page)).toBe("2")
+    await open("carousel", { cancel: "2" })
+    await settled(page)
+    const viewport = page.locator(".carousel-viewport")
+    await viewport.evaluate((el) => {
+      const rested = document.querySelector("output[aria-label='Rested on']")!
+      const positions: number[] = []
+      new MutationObserver(() => positions.push(el.scrollLeft)).observe(
+        rested,
+        { childList: true, characterData: true, subtree: true }
+      )
+      Object.assign(window, { restedPositions: positions })
+      el.scrollTo({ left: el.clientWidth, behavior: "smooth" })
+    })
+    await expect(page.getByLabel("Rested on")).toHaveText("1")
+    await settled(page)
+    const positions = await page.evaluate(
+      () => (window as unknown as { restedPositions: number[] }).restedPositions
+    )
+    expect(positions.length).toBeGreaterThan(0)
+    expect(positions[0]).toBeLessThanOrEqual(1)
   })
 
   test("with loop, a wheel back from the first slide scrolls natively to the last @enhancement", async ({
