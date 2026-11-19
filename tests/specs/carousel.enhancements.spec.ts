@@ -10,6 +10,7 @@ import {
   previousButton,
   settled,
   slideLink,
+  watchBackward,
 } from "./carousel.helpers"
 
 // Behavior past the WAI-ARIA carousel pattern, tagged `@enhancement`.
@@ -251,6 +252,213 @@ test.describe("changes @enhancement", () => {
     expect(await lastAction(page)).toBe("2")
   })
 
+  for (const controlled of [false, true]) {
+    const variant = controlled ? ", with a controlled page" : ""
+
+    test(`a scrollend before the scroll ends doesn't pull the slides back${variant} @enhancement`, async ({
+      page,
+      open,
+      framework,
+    }) => {
+      test.skip(
+        controlled && framework === "web",
+        "The web components fixture doesn't control the page."
+      )
+      test.skip(
+        controlled && framework.startsWith("react"),
+        "React hands a controlled page over after the carousel moves back to the old one."
+      )
+      await open("carousel", controlled ? { controlled: "" } : {})
+      await settled(page)
+      const backward = await watchBackward(page)
+      // Like Safari, which fires `scrollend` as trackpad fingers lift while
+      // momentum carries on, here as a smooth scroll starts.
+      await page.locator(".carousel-viewport").evaluate((viewport) => {
+        viewport.addEventListener(
+          "scroll",
+          () => viewport.dispatchEvent(new Event("scrollend")),
+          { once: true }
+        )
+        viewport.scrollTo({ left: viewport.clientWidth, behavior: "smooth" })
+      })
+      await expectShown(page, 1)
+      expect(await backward()).toBe(0)
+    })
+
+    test(`with dragFree, a wheel stays where it stops past the middle of a slide${variant} @enhancement`, async ({
+      page,
+      open,
+      framework,
+    }) => {
+      test.skip(
+        controlled && framework === "web",
+        "The web components fixture doesn't control the page."
+      )
+      test.skip(
+        controlled && framework.startsWith("react"),
+        "React hands a controlled page over after the carousel moves back to the old one."
+      )
+      await open("carousel", {
+        "drag-free": "",
+        ...(controlled && { controlled: "" }),
+      })
+      const viewport = page.locator(".carousel-viewport")
+      const width = await viewport.evaluate((el) => el.clientWidth)
+      const distance = Math.round(width * 0.7)
+      const box = await slideLink(page, 0).boundingBox()
+      await page.mouse.move(box!.x, box!.y)
+      await page.mouse.wheel(distance, 0)
+      await expect.poll(() => lastReason(page)).toBe("scroll")
+      await settled(page)
+      const stoppedAt = await viewport.evaluate((el) => el.scrollLeft)
+      expect(Math.abs(stoppedAt - distance)).toBeLessThanOrEqual(1)
+    })
+  }
+
+  test("a scroll the browser doesn't snap stays where it stops @enhancement", async ({
+    page,
+    open,
+  }) => {
+    await open("carousel")
+    await page.addStyleTag({
+      content: ".carousel-slide { scroll-snap-align: none !important }",
+    })
+    const viewport = page.locator(".carousel-viewport")
+    const distance = await viewport.evaluate((el) => {
+      const left = Math.round(el.clientWidth * 0.3)
+      el.scrollTo({ left, behavior: "smooth" })
+      return left
+    })
+    await expect(page.getByLabel("Rested on")).toHaveText("1")
+    await settled(page)
+    const stoppedAt = await viewport.evaluate((el) => el.scrollLeft)
+    expect(Math.abs(stoppedAt - distance)).toBeLessThanOrEqual(1)
+  })
+
+  for (const share of [0.3, 0.7]) {
+    test(`with dragFree, Next pressed while a scroll ${share * 100}% across a slide comes to rest shows the next slide @enhancement`, async ({
+      page,
+      open,
+    }) => {
+      await open("carousel", { "drag-free": "" })
+      const viewport = page.locator(".carousel-viewport")
+      const width = await viewport.evaluate((el) => el.clientWidth)
+      const box = await slideLink(page, 0).boundingBox()
+      await page.mouse.move(box!.x, box!.y)
+      await page.mouse.wheel(Math.round(width * share), 0)
+      // A scroll event right before the press keeps the scroll from resting first.
+      await viewport.evaluate((el) => el.dispatchEvent(new Event("scroll")))
+      await nextButton(page).click()
+      await expect
+        .poll(() =>
+          viewport.evaluate((el) => Math.abs(el.scrollLeft - el.clientWidth))
+        )
+        .toBeLessThanOrEqual(1)
+      expect(await lastReason(page)).toBe("next-press")
+    })
+  }
+
+  test("a scroll change that's canceled completes once it's back on its page @enhancement", async ({
+    page,
+    open,
+  }) => {
+    await open("carousel", { cancel: "2" })
+    await settled(page)
+    const viewport = page.locator(".carousel-viewport")
+    await viewport.evaluate((el) => {
+      const rested = document.querySelector("output[aria-label='Rested on']")!
+      const positions: number[] = []
+      new MutationObserver(() => positions.push(el.scrollLeft)).observe(
+        rested,
+        { childList: true, characterData: true, subtree: true }
+      )
+      Object.assign(window, { restedPositions: positions })
+      el.scrollTo({ left: el.clientWidth, behavior: "smooth" })
+    })
+    await expect(page.getByLabel("Rested on")).toHaveText("1")
+    await settled(page)
+    const positions = await page.evaluate(
+      () => (window as unknown as { restedPositions: number[] }).restedPositions
+    )
+    expect(positions.length).toBeGreaterThan(0)
+    expect(positions[0]).toBeLessThanOrEqual(1)
+  })
+
+  for (const reducedMotion of [false, true]) {
+    const variant = reducedMotion ? ", with reduced motion" : ""
+
+    test(`a canceled scroll change reports its rest once, back on its page${variant} @enhancement`, async ({
+      page,
+      open,
+      framework,
+    }) => {
+      test.skip(
+        framework !== "web",
+        "Counts `pagechangecomplete`, which only the web components dispatch."
+      )
+      await page.emulateMedia({
+        reducedMotion: reducedMotion ? "reduce" : "no-preference",
+      })
+      await open("carousel", { cancel: "2" })
+      await settled(page)
+      await page.locator("ui-carousel").evaluate((carousel) => {
+        const viewport =
+          carousel.querySelector<HTMLElement>(".carousel-viewport")!
+        const rests: number[] = []
+        carousel.addEventListener("pagechangecomplete", () =>
+          rests.push(viewport.scrollLeft)
+        )
+        Object.assign(window, { rests })
+        viewport.scrollTo({ left: viewport.clientWidth, behavior: "smooth" })
+      })
+      await expect(page.getByLabel("Rested on")).toHaveText("1")
+      await settled(page)
+      const rests = await page.evaluate(
+        () => (window as unknown as { rests: number[] }).rests
+      )
+      expect(rests).toEqual([0])
+    })
+
+    test(`with dragFree, Next pressed while a scroll comes to rest reports its rest once${variant} @enhancement`, async ({
+      page,
+      open,
+      framework,
+    }) => {
+      test.skip(
+        framework !== "web",
+        "Counts `pagechangecomplete`, which only the web components dispatch."
+      )
+      await page.emulateMedia({
+        reducedMotion: reducedMotion ? "reduce" : "no-preference",
+      })
+      await open("carousel", { "drag-free": "" })
+      const viewport = page.locator(".carousel-viewport")
+      await page.locator("ui-carousel").evaluate((carousel) => {
+        const rests: number[] = []
+        carousel.addEventListener("pagechangecomplete", (event) =>
+          rests.push((event as CustomEvent<{ value: number }>).detail.value)
+        )
+        Object.assign(window, { rests })
+      })
+      const width = await viewport.evaluate((el) => el.clientWidth)
+      const box = await slideLink(page, 0).boundingBox()
+      await page.mouse.move(box!.x, box!.y)
+      await page.mouse.wheel(Math.round(width * 0.7), 0)
+      await viewport.evaluate((el) => el.dispatchEvent(new Event("scroll")))
+      await nextButton(page).click()
+      await expect
+        .poll(() =>
+          viewport.evaluate((el) => Math.abs(el.scrollLeft - el.clientWidth))
+        )
+        .toBeLessThanOrEqual(1)
+      await settled(page)
+      const rests = await page.evaluate(
+        () => (window as unknown as { rests: number[] }).rests
+      )
+      expect(rests).toEqual([2])
+    })
+  }
+
   test("with loop, a wheel back from the first slide scrolls natively to the last @enhancement", async ({
     page,
     open,
@@ -391,6 +599,48 @@ test.describe("rotation @enhancement", () => {
     await expect(playToggle(page, true)).toBeVisible()
     await page.getByRole("button", { name: "After" }).hover()
     await expect.poll(() => lastAction(page)).not.toBe(pausedAt)
+  })
+
+  test("rotation pauses while the user scrolls, and resumes once the scroll rests @enhancement", async ({
+    page,
+    open,
+  }) => {
+    await open("carousel", { playing: "", interval: "300" })
+    await page.locator(".carousel-viewport").evaluate(
+      (viewport) =>
+        new Promise<void>((resolve) => {
+          const reason = document.querySelector(
+            "output[aria-label='Last reason']"
+          )!
+          const reasons: string[] = []
+          new MutationObserver(() =>
+            reasons.push(reason.textContent ?? "")
+          ).observe(reason, {
+            childList: true,
+            characterData: true,
+            subtree: true,
+          })
+          Object.assign(window, { reasonsWhileScrolling: reasons })
+          // Scroll events for three intervals, with no `scrollend`.
+          let left = 12
+          viewport.dispatchEvent(new Event("scroll"))
+          const timer = setInterval(() => {
+            viewport.dispatchEvent(new Event("scroll"))
+            if (--left === 0) {
+              clearInterval(timer)
+              Object.assign(window, { reasonsWhileScrolling: [...reasons] })
+              resolve()
+            }
+          }, 75)
+        })
+    )
+    const reasonsWhileScrolling = await page.evaluate(
+      () =>
+        (window as unknown as { reasonsWhileScrolling: string[] })
+          .reasonsWhileScrolling
+    )
+    expect(reasonsWhileScrolling).not.toContain("timeout")
+    await expect.poll(() => lastReason(page)).toBe("timeout")
   })
 
   test("pressing Next stops rotation @enhancement", async ({ page, open }) => {

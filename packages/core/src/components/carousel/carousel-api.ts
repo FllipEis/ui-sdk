@@ -151,6 +151,9 @@ function carouselApiBody(
   let motion: CarouselMotion | undefined
   // Which way a step heads, 1 or -1, for the loop to rotate toward it.
   let heading: 1 | -1 | undefined
+  // A page change the user or the app made while the user's own scroll held
+  // the viewport, which the scroll's rest goes to instead of the nearest page.
+  let pagedWhileScrolling = false
   const readDirection = () =>
     (isRtl = isRTL(element("viewport") ?? element("root")))
   const turned = () =>
@@ -232,6 +235,10 @@ function carouselApiBody(
     heading = by
     const changed = change("page", target, { reason, event })
     heading = undefined
+    const isAsked = userReasons.has(reason) || reason === "imperative"
+    if (changed && isAsked && motion?.isScrolling()) {
+      pagedWhileScrolling = true
+    }
     // A canceled change, or a controlled page that stayed, moves back.
     if (!changed || store.get().page !== target) {
       queueMicrotask(followPage)
@@ -249,7 +256,7 @@ function carouselApiBody(
   // Scrolls to the current page, if the viewport isn't there. A spring on
   // its way somewhere else turns toward it; the user's own scroll or drag
   // settles it later.
-  function followPage({ animate = true } = {}) {
+  function followPage({ animate = true, takeOver = false } = {}) {
     if (
       loop.isRotating() ||
       !motion ||
@@ -260,7 +267,7 @@ function carouselApiBody(
       return
     }
     const index = store.get().page - 1
-    if (!layout[index]) {
+    if (!layout[index] || (animate && !takeOver && isLeftToBrowser(index))) {
       return
     }
     if (animate) {
@@ -270,6 +277,19 @@ function carouselApiBody(
     if (Math.abs(motion.position() - position) >= 1 || !store.get().snapping) {
       motion.moveTo(visual.indexOf(index), { animate })
     }
+  }
+
+  // Where the user's own scroll rested is the browser's to line up with CSS
+  // snapping, or to keep with `dragFree`. After a finger caught a spring,
+  // snapping is off, and the carousel lines it up itself.
+  function isLeftToBrowser(index: number) {
+    const { dragFree, snapping } = store.get()
+    return (
+      (dragFree || snapping) &&
+      motion !== undefined &&
+      motion.restedFromScroll() &&
+      nearestPage(layout, motion.position()) === index
+    )
   }
 
   let snapAreas = false
@@ -431,23 +451,35 @@ function carouselApiBody(
     position: number,
     cause: { touch: boolean; event?: Event }
   ) {
-    const wasRtl = isRtl
-    if (followDirection() !== wasRtl && motion) {
-      position = motion.position()
-    }
     updateInView()
+    autoplay.setPaused("scroll", false)
+    const paged = pagedWhileScrolling
+    pagedWhileScrolling = false
     const index = nearestPage(layout, position)
     if (index === -1) {
       return
     }
-    const reason = cause.touch ? "swipe" : "scroll"
+    if (paged) {
+      followPage({ takeOver: true })
+      return restUnlessMoved()
+    }
     if (index + 1 !== store.get().page) {
-      go(index + 1, reason, cause.event)
+      go(index + 1, cause.touch ? "swipe" : "scroll", cause.event)
     }
-    if (!store.get().dragFree) {
+    if (store.get().page === index + 1) {
       followPage()
+      return restUnlessMoved()
     }
-    rested()
+    // A canceled change, or a controlled page that hasn't arrived yet, is
+    // left to the follow that `go` queued.
+    queueMicrotask(restUnlessMoved)
+  }
+
+  // A move the carousel makes after a scroll's rest reports once it settles.
+  function restUnlessMoved() {
+    if (motion?.restedFromScroll()) {
+      rested()
+    }
   }
 
   function bindViewport(viewport: HTMLElement) {
@@ -456,6 +488,7 @@ function carouselApiBody(
       viewport,
       content: () => element("content"),
       axis,
+      followDirection,
       // In the order they rest, within the scroll range.
       positions: () =>
         visual.map((index) => clamp(layout[index].position, 0, maxScroll)),
@@ -476,6 +509,8 @@ function carouselApiBody(
       onRelease: (index, event) => go(visual[index] + 1, "swipe", event),
       onScrollRest,
       onSettle: () => {
+        pagedWhileScrolling = false
+        autoplay.setPaused("scroll", false)
         if (!store.get().dragFree) {
           followPage()
         }
@@ -485,12 +520,19 @@ function carouselApiBody(
         store.set({ dragging })
         autoplay.setPaused("drag", dragging)
       },
-      onScroll: updateInView,
+      onScroll: () => {
+        if (motion?.isScrolling()) {
+          autoplay.setPaused("scroll", true)
+        }
+        updateInView()
+      },
     })
     motion = viewportMotion
     cleanups.push(viewportMotion.destroy, () => {
       if (motion === viewportMotion) {
         motion = undefined
+        pagedWhileScrolling = false
+        autoplay.setPaused("scroll", false)
       }
       loop.reset(elements(context, "item"))
     })

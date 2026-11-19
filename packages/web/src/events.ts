@@ -1076,7 +1076,7 @@ interface UiListboxElement
  */
 type CarouselEvents = {
   pagechange: UiChangeEvent<number, CarouselPageChangeReason>
-  /** The slides came to rest on a page: `detail.value`. */
+  /** The slides came to rest: `detail.value` is the page they rest on, or the nearest one. */
   pagechangecomplete: CustomEvent<{ value: number }>
   playingchange: UiChangeEvent<boolean, CarouselPlayingChangeReason>
 }
