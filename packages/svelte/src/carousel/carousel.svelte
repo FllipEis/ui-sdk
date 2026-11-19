@@ -77,7 +77,7 @@ A region of slides that scroll a page at a time. Name it with `aria-label`.
     debug?: boolean
     /** Runs when the page wants to change. `details.reason` says why, and `details.cancel()` stays on the page. */
     onPageChange?: (page: number, details: PageDetails) => void
-    /** Runs once the slides come to rest, after a spring, a drag or a scroll. */
+    /** Runs once the slides come to rest, after a spring, a drag or a scroll, with the page they rest on, or the nearest one. */
     onPageChangeComplete?: (page: number) => void
     /** Runs when rotation wants to start or stop. */
     onPlayingChange?: (playing: boolean, details: PlayingDetails) => void
