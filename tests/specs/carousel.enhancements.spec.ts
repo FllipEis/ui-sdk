@@ -601,6 +601,48 @@ test.describe("rotation @enhancement", () => {
     await expect.poll(() => lastAction(page)).not.toBe(pausedAt)
   })
 
+  test("rotation pauses while the user scrolls, and resumes once the scroll rests @enhancement", async ({
+    page,
+    open,
+  }) => {
+    await open("carousel", { playing: "", interval: "300" })
+    await page.locator(".carousel-viewport").evaluate(
+      (viewport) =>
+        new Promise<void>((resolve) => {
+          const reason = document.querySelector(
+            "output[aria-label='Last reason']"
+          )!
+          const reasons: string[] = []
+          new MutationObserver(() =>
+            reasons.push(reason.textContent ?? "")
+          ).observe(reason, {
+            childList: true,
+            characterData: true,
+            subtree: true,
+          })
+          Object.assign(window, { reasonsWhileScrolling: reasons })
+          // Scroll events for three intervals, with no `scrollend`.
+          let left = 12
+          viewport.dispatchEvent(new Event("scroll"))
+          const timer = setInterval(() => {
+            viewport.dispatchEvent(new Event("scroll"))
+            if (--left === 0) {
+              clearInterval(timer)
+              Object.assign(window, { reasonsWhileScrolling: [...reasons] })
+              resolve()
+            }
+          }, 75)
+        })
+    )
+    const reasonsWhileScrolling = await page.evaluate(
+      () =>
+        (window as unknown as { reasonsWhileScrolling: string[] })
+          .reasonsWhileScrolling
+    )
+    expect(reasonsWhileScrolling).not.toContain("timeout")
+    await expect.poll(() => lastReason(page)).toBe("timeout")
+  })
+
   test("pressing Next stops rotation @enhancement", async ({ page, open }) => {
     await open("carousel", { playing: "", interval: "400" })
     await nextButton(page).click()

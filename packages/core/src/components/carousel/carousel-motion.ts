@@ -320,10 +320,8 @@ function createCarouselMotion(options: CarouselMotionOptions) {
 
   function restAfter(delay: number) {
     view.clearTimeout(restTimer)
-    restTimer = view.setTimeout(restLater, delay)
+    restTimer = view.setTimeout(onRest, delay)
   }
-
-  const restLater = () => onRest()
 
   function canRestHere() {
     return !options.dragFree() && isOnPage()

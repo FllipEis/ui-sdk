@@ -452,13 +452,14 @@ function carouselApiBody(
     cause: { touch: boolean; event?: Event }
   ) {
     updateInView()
+    autoplay.setPaused("scroll", false)
+    const paged = pagedWhileScrolling
+    pagedWhileScrolling = false
     const index = nearestPage(layout, position)
     if (index === -1) {
       return
     }
-    autoplay.setPaused("scroll", false)
-    if (pagedWhileScrolling) {
-      pagedWhileScrolling = false
+    if (paged) {
       followPage({ takeOver: true })
       return restUnlessMoved()
     }

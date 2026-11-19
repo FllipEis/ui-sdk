@@ -137,7 +137,7 @@ A gallery and a strip of thumbnails share the selected page. The thumbnail carou
 `defaultPlaying` starts rotating, every `interval` milliseconds (5000 by default). `CarouselPlayToggle`
 starts and stops it; label it from `playing` in its state.
 
-As the carousel pattern asks, rotation stops when keyboard focus moves in and doesn't restart until the user asks, and pauses while the mouse is over it. It also pauses while the tab is hidden, while the carousel is scrolled out of view and while a finger is down. Changing slides yourself stops it. The slides are a polite live region only while it isn't rotating, so screen readers aren't interrupted every few seconds. It doesn't start on its own when the user prefers reduced motion.
+As the carousel pattern asks, rotation stops when keyboard focus moves in and doesn't restart until the user asks, and pauses while the mouse is over it. It also pauses while the tab is hidden, while the carousel is scrolled out of view, while a finger is down and while the user scrolls it. Changing slides yourself stops it. The slides are a polite live region only while it isn't rotating, so screen readers aren't interrupted every few seconds. It doesn't start on its own when the user prefers reduced motion.
 
 `--carousel-interval` on the root is the interval, and `data-paused` is there while it's paused, so a progress bar can time itself with CSS.
 
@@ -387,13 +387,13 @@ Every write method takes an optional `{ reason, event }`, passed to the change c
 
 Callbacks get the new value first, then the details. A bound `page` or `playing` only updates when its change callback wasn't canceled.
 
-| Prop                   | On         | Receives                                                    |
-| ---------------------- | ---------- | ----------------------------------------------------------- |
-| `bind:page`            | `Carousel` | The current page                                            |
-| `bind:playing`         | `Carousel` | Whether it rotates                                          |
-| `onPageChange`         | `Carousel` | `(page, details)`: the new page, and the [reason](#reasons) |
-| `onPageChangeComplete` | `Carousel` | `(page)`: the page the slides came to rest on               |
-| `onPlayingChange`      | `Carousel` | `(playing, details)`: whether it rotates, and the reason    |
+| Prop                   | On         | Receives                                                          |
+| ---------------------- | ---------- | ----------------------------------------------------------------- |
+| `bind:page`            | `Carousel` | The current page                                                  |
+| `bind:playing`         | `Carousel` | Whether it rotates                                                |
+| `onPageChange`         | `Carousel` | `(page, details)`: the new page, and the [reason](#reasons)       |
+| `onPageChangeComplete` | `Carousel` | `(page)`: the page the slides came to rest on, or the nearest one |
+| `onPlayingChange`      | `Carousel` | `(playing, details)`: whether it rotates, and the reason          |
 
 ## Accessibility
 
